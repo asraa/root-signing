@@ -19,6 +19,7 @@ if [ -z "$REVOCATION_KEY" ]; then
     echo "Set REVOCATION_KEY"
     exit
 fi
+<<<<<<< HEAD
 if [ -z "$REPO" ]; then
     REPO=$(pwd)/ceremony/$(date '+%Y-%m-%d')
     echo "Using default REPO $REPO"
@@ -28,6 +29,10 @@ if [ -z "$BRANCH" ]; then
     export BRANCH=main
 else
     echo "Using branch $BRANCH"
+=======
+if [ -z "$CEREMONY_DATE" ]; then
+    CEREMONY_DATE=$(date '+%Y-%m-%d')
+>>>>>>> 633c699 (Add configuration to specify custom target metadata and fix revocation bug)
 fi
 
 # Dump the git state
@@ -42,6 +47,7 @@ git status
 # Sign the delegations
 ./tuf sign -repository $REPO -roles rekor -key ${REKOR_KEY}
 ./tuf sign -repository $REPO -roles staging -key ${STAGING_KEY}
+./tuf sign -repository $REPO -roles revocation -key ${REVOCATION_KEY}
 
 if [ -n "$NO_PUSH" ]; then
     echo "Skipping push, exiting early..."

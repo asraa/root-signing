@@ -7,6 +7,7 @@ if [ -z "$GITHUB_USER" ]; then
     echo "Set GITHUB_USER"
     exit
 fi
+# Online top-level keys
 if [ -z "$TIMESTAMP_KEY" ]; then
     echo "Set TIMESTAMP_KEY"
     exit
@@ -15,12 +16,17 @@ if [ -z "$SNAPSHOT_KEY" ]; then
     echo "Set SNAPSHOT_KEY"
     exit
 fi
+# Delegation keys
 if [ -z "$REKOR_KEY" ]; then
     echo "Set REKOR_KEY"
     exit
 fi
 if [ -z "$STAGING_KEY" ]; then
     echo "Set STAGING_KEY"
+    exit
+fi
+if [ -z "$REVOCATION_KEY" ]; then
+    echo "Set REVOCATION_KEY"
     exit
 fi
 # Repo options

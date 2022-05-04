@@ -20,6 +20,9 @@ if [ -z "$REVOCATION_KEY" ]; then
     exit
 fi
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 9b26c7e (Make script changes for cleanliness and testing)
 if [ -z "$REPO" ]; then
     REPO=$(pwd)/ceremony/$(date '+%Y-%m-%d')
     echo "Using default REPO $REPO"
@@ -29,10 +32,13 @@ if [ -z "$BRANCH" ]; then
     export BRANCH=main
 else
     echo "Using branch $BRANCH"
+<<<<<<< HEAD
 =======
 if [ -z "$CEREMONY_DATE" ]; then
     CEREMONY_DATE=$(date '+%Y-%m-%d')
 >>>>>>> 633c699 (Add configuration to specify custom target metadata and fix revocation bug)
+=======
+>>>>>>> 9b26c7e (Make script changes for cleanliness and testing)
 fi
 
 # Dump the git state
@@ -51,7 +57,10 @@ git status
 
 if [ -n "$NO_PUSH" ]; then
     echo "Skipping push, exiting early..."
+<<<<<<< HEAD
     exit
+=======
+>>>>>>> 9b26c7e (Make script changes for cleanliness and testing)
 fi
 
 git checkout -b sign-delegations
@@ -62,5 +71,9 @@ git push -f origin sign-delegations
 # Open the browser
 export GITHUB_URL=$(git remote -v | awk '/^upstream/{print $2}'| head -1 | sed -Ee 's#(git@|git://)#https://#' -e 's@com:@com/@' -e 's#\.git$##')
 export CHANGE_BRANCH=$(git symbolic-ref HEAD | cut -d"/" -f 3,4)
+<<<<<<< HEAD
 export PR_URL=${GITHUB_URL}"/compare/${BRANCH}..."${GITHUB_USER}:${CHANGE_BRANCH}"?expand=1"
+=======
+export PR_URL=${GITHUB_URL}"/compare/${BRANCH}..."${CHANGE_BRANCH}"?expand=1"
+>>>>>>> 9b26c7e (Make script changes for cleanliness and testing)
 open "${PR_URL}" || xdg-open "${PR_URL}"

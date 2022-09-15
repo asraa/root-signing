@@ -20,6 +20,7 @@ import (
 	"os"
 	"testing"
 
+	csignature "github.com/sigstore/cosign/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	"github.com/theupdateframework/go-tuf/pkg/keys"
 )
@@ -98,6 +99,7 @@ SREzU8onbBsjMg9QDiSf5oJLKvd/Ren+zGY7
 -----END CERTIFICATE-----`
 
 func TestToSigningKey(t *testing.T) {
+	ctx := context.Background()
 	tests := []struct {
 		name          string
 		pub           []byte
@@ -159,11 +161,11 @@ func TestToSigningKey(t *testing.T) {
 				t.Errorf("unexpected error generating signing key (%s): %s", tt.name, err)
 			}
 			if tt.expectSuccess {
-				hexPubKey, err := ToTufKey(*key, true)
+				hexPubKey, err := ConstructTufKey(ctx, key.Verifier, true)
 				if err != nil {
 					t.Errorf("unexpected error generating hex TUF public key: %s", err)
 				}
-				pemPubKey, err := ToTufKey(*key, false)
+				pemPubKey, err := ConstructTufKey(ctx, key.Verifier, false)
 				if err != nil {
 					t.Errorf("unexpected error generating PEM TUF public key: %s", err)
 				}
@@ -183,40 +185,43 @@ func TestToSigningKey(t *testing.T) {
 
 func TestGetSigningKey(t *testing.T) {
 	ctx := context.Background()
+	keyRef := "../../tests/test_data/cosign.key"
+	signingKey, err := csignature.SignerVerifierFromKeyRef(ctx, keyRef, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Run("valid signing key with PEM", func(t *testing.T) {
-		keyRef := "../../tests/test_data/cosign.key"
-		signingKeyPem, err := GetSigningKey(ctx, keyRef, false)
+		tufKey, err := ConstructTufKey(ctx, signingKey, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = keys.GetVerifier(signingKeyPem.Key)
+		_, err = keys.GetVerifier(tufKey)
 		if err != nil {
 			t.Fatalf("unexpected error getting TUF PEM ecdsa verifier: %s", err)
 		}
 		// Try with explicit verifier.
 		pemKey := keys.NewEcdsaVerifier()
-		if err := pemKey.UnmarshalPublicKey(signingKeyPem.Key); err != nil {
+		if err := pemKey.UnmarshalPublicKey(tufKey); err != nil {
 			t.Errorf("unexpected error getting TUF PEM ecdsa verifier: %s", err)
 		}
 	})
 	t.Run("valid signing key with hex", func(t *testing.T) {
-		keyRef := "../../tests/test_data/cosign.key"
-		signingKeyPem, err := GetSigningKey(ctx, keyRef, true)
+		tufKey, err := ConstructTufKey(ctx, signingKey, true)
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = keys.GetVerifier(signingKeyPem.Key)
+		_, err = keys.GetVerifier(tufKey)
 		if err != nil {
 			t.Fatalf("unexpected error getting hex PEM ecdsa verifier: %s", err)
 		}
 		// Try with explicit verifier.
 		hexKey := keys.NewDeprecatedEcdsaVerifier()
-		if err := hexKey.UnmarshalPublicKey(signingKeyPem.Key); err != nil {
+		if err := hexKey.UnmarshalPublicKey(tufKey); err != nil {
 			t.Errorf("unexpected error unmarshalling with  TUF hex ecdsa verifier: %s", err)
 		}
 		// Fails with other verifier.
 		pemKey := keys.NewEcdsaVerifier()
-		if err := pemKey.UnmarshalPublicKey(signingKeyPem.Key); err == nil {
+		if err := pemKey.UnmarshalPublicKey(tufKey); err == nil {
 			t.Errorf("expected error unmarshalling with TUF PEM ecdsa verifier: %s", err)
 		}
 	})

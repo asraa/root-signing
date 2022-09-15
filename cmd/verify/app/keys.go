@@ -16,6 +16,7 @@
 package app
 
 import (
+	"context"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -55,6 +56,7 @@ type KeyMap map[string]*keys.SigningKey
 
 func verifySigningKeys(dirname string, rootCA *x509.Certificate) (*KeyMap, error) {
 	// Get all signing keys in the directory.
+	ctx := context.Background()
 	log.Printf("\nOutputting key verification and OpenSSL commands...\n")
 
 	files, err := os.ReadDir(dirname)
@@ -72,7 +74,7 @@ func verifySigningKeys(dirname string, rootCA *x509.Certificate) (*KeyMap, error
 				log.Printf("error verifying key %d: %s", key.SerialNumber, err)
 				return nil, err
 			}
-			tufKey, err := keys.ToTufKey(*key, app.DeprecatedEcdsaFormat)
+			tufKey, err := keys.ConstructTufKey(ctx, key.Verifier, app.DeprecatedEcdsaFormat)
 			if err != nil {
 				return nil, err
 			}

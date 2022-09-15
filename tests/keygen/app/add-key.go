@@ -72,7 +72,7 @@ var addKeyCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 
-		if _, err := test.CreateTestHsmSigner(repository, rootCAs[0], rootSigner); err != nil {
+		if _, _, err := test.CreateTestHsmSigner(repository, rootCAs[0], rootSigner); err != nil {
 			log.Fatal(err)
 		}
 

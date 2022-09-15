@@ -127,31 +127,19 @@ func createTestAttestations(root *x509.Certificate, rootSigner crypto.PrivateKey
 }
 
 func GetTestHsmSigner(ctx context.Context, testDir string, serial uint32,
-	deprecatedKeyFormat bool) (*keys.SignerAndTufKey, error) {
+	deprecatedKeyFormat bool) (signature.SignerVerifier, error) {
 	// read private key from file.
 	serialStr := fmt.Sprint(serial)
 	privKeyFile := filepath.Join(testDir, "keys", serialStr, serialStr+"_privkey.pem")
 
-	signer, err := signature.LoadSignerVerifierFromPEMFile(privKeyFile, crypto.SHA256, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	cryptoPub, _ := signer.PublicKey()
-	pub := cryptoPub.(*ecdsa.PublicKey)
-
-	pk, err := keys.EcdsaTufKey(pub, deprecatedKeyFormat)
-	if err != nil {
-		return nil, err
-	}
-
-	return &keys.SignerAndTufKey{Signer: signer, Key: pk}, nil
+	return signature.LoadSignerVerifierFromPEMFile(privKeyFile, crypto.SHA256, nil)
 }
 
-func CreateTestHsmSigner(testDir string, root *x509.Certificate, rootSigner crypto.PrivateKey) (*uint32, error) {
+func CreateTestHsmSigner(testDir string, root *x509.Certificate, rootSigner crypto.PrivateKey) (
+	signature.SignerVerifier, *uint32, error) {
 	generated, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pub := &generated.PublicKey
 	n, _ := rand.Int(rand.Reader, big.NewInt(100000000))
@@ -159,16 +147,16 @@ func CreateTestHsmSigner(testDir string, root *x509.Certificate, rootSigner cryp
 
 	deviceCert, keyCert, err := createTestAttestations(root, rootSigner, pub, int(serial))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	deviceCertPem, err := cryptoutils.MarshalCertificateToPEM(deviceCert)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	keyCertPem, err := cryptoutils.MarshalCertificateToPEM(keyCert)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	keyAndAttestations := &app.KeyAndAttestations{
@@ -186,18 +174,23 @@ func CreateTestHsmSigner(testDir string, root *x509.Certificate, rootSigner cryp
 
 	// Write to repository/keys/SERIAL_NUM/SERIAL_NUM_pubkey.pem, etc
 	if err := app.WriteKeyData(keyAndAttestations, testDir); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	b, err := cryptoutils.MarshalPrivateKeyToPEM(generated)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	serialStr := fmt.Sprint(keyAndAttestations.Attestations.KeyAttestation.Serial)
 	privKeyFile := filepath.Join(testDir, "keys", serialStr, serialStr+"_privkey.pem")
 	if err := ioutil.WriteFile(privKeyFile, []byte(b), 0644); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &serial, nil
+	signer, err := signature.LoadECDSASignerVerifier(generated, crypto.SHA256)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return signer, &serial, nil
 }

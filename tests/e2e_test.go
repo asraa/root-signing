@@ -41,6 +41,7 @@ import (
 	prepo "github.com/sigstore/root-signing/pkg/repo"
 	stuf "github.com/sigstore/sigstore/pkg/tuf"
 
+	csignature "github.com/sigstore/cosign/pkg/signature"
 	"github.com/theupdateframework/go-tuf"
 	"github.com/theupdateframework/go-tuf/client"
 	"github.com/theupdateframework/go-tuf/data"
@@ -198,7 +199,7 @@ func snapshotTimestampPublish(ctx context.Context, t *testing.T, repo string,
 	if err := app.SnapshotCmd(ctx, repo); err != nil {
 		t.Fatalf("expected Snapshot command to pass, got err: %s", err)
 	}
-	snapshotSigner, err := keys.GetSigningKey(ctx, snapshotKey, app.DeprecatedEcdsaFormat)
+	snapshotSigner, err := csignature.SignerVerifierFromKeyRef(ctx, snapshotKey, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +210,7 @@ func snapshotTimestampPublish(ctx context.Context, t *testing.T, repo string,
 	if err := app.TimestampCmd(ctx, repo); err != nil {
 		t.Fatalf("expected Timestamp command to pass, got err: %s", err)
 	}
-	timestampSigner, err := keys.GetSigningKey(ctx, timestampKey, app.DeprecatedEcdsaFormat)
+	timestampSigner, err := csignature.SignerVerifierFromKeyRef(ctx, timestampKey, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +271,7 @@ func TestSignRootTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	serial, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	hsmSigner, _, err := CreateTestHsmSigner(td, rootCA, rootSigner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,17 +285,17 @@ func TestSignRootTargets(t *testing.T) {
 	}
 
 	// Sign root and targets.
-	signerAndKey, err := GetTestHsmSigner(ctx, td, *serial, app.DeprecatedEcdsaFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, signerAndKey); err != nil {
+	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, hsmSigner, app.Hex); err != nil {
 		t.Fatal(err)
 	}
 
 	// Verify that root and targets have one signature.
 	store := tuf.FileSystemStore(td, nil)
 	meta, err := store.GetMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hsmTufKey, err := keys.ConstructTufKey(ctx, hsmSigner, app.DeprecatedEcdsaFormat)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +311,7 @@ func TestSignRootTargets(t *testing.T) {
 		if len(signed.Signatures) != 1 {
 			t.Fatalf("missing signatures on %s", metaName)
 		}
-		if !signerAndKey.Key.ContainsID(signed.Signatures[0].KeyID) {
+		if !hsmTufKey.ContainsID(signed.Signatures[0].KeyID) {
 			t.Fatalf("missing key id for signer on %s", metaName)
 		}
 		if len(signed.Signatures[0].Signature) == 0 {
@@ -335,11 +336,7 @@ func TestSnapshotUnvalidatedFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rootkey1, err := CreateTestHsmSigner(td, rootCA, rootSigner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = CreateTestHsmSigner(td, rootCA, rootSigner)
+	hsmSigner1, _, err := CreateTestHsmSigner(td, rootCA, rootSigner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +364,7 @@ func TestSnapshotUnvalidatedFails(t *testing.T) {
 		if err := json.Unmarshal(md, signed); err != nil {
 			t.Fatal(err)
 		}
-		if len(signed.Signatures) != 2 {
+		if len(signed.Signatures) != 1 {
 			t.Fatalf("expected 1 signature on %s", metaName)
 		}
 		if len(signed.Signatures[0].Signature) != 0 {
@@ -381,11 +378,7 @@ func TestSnapshotUnvalidatedFails(t *testing.T) {
 	}
 
 	// Now sign root and targets with 1/1 threshold key.
-	signerAndKey1, err := GetTestHsmSigner(ctx, td, *rootkey1, app.DeprecatedEcdsaFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, signerAndKey1); err != nil {
+	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, hsmSigner1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -434,7 +427,7 @@ func TestPublishSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rootSerial, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	hsmSigner, _, err := CreateTestHsmSigner(td, rootCA, rootSigner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,11 +441,7 @@ func TestPublishSuccess(t *testing.T) {
 	}
 
 	// Sign root & targets
-	rootKey, err := GetTestHsmSigner(ctx, td, *rootSerial, app.DeprecatedEcdsaFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, rootKey); err != nil {
+	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, hsmSigner); err != nil {
 		t.Fatal(err)
 	}
 
@@ -516,11 +505,19 @@ func TestRotateRootKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rootSerial1, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	hsmSigner1, _, err := CreateTestHsmSigner(td, rootCA, rootSigner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootSerial2, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	hsmTufKey1, err := keys.ConstructTufKey(ctx, hsmSigner1, app.DeprecatedEcdsaFormat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hsmSigner2, rootSerial2, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hsmTufKey2, err := keys.ConstructTufKey(ctx, hsmSigner2, app.DeprecatedEcdsaFormat)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,11 +531,7 @@ func TestRotateRootKey(t *testing.T) {
 	}
 
 	// Sign root & targets with key 1
-	rootKey1, err := GetTestHsmSigner(ctx, td, *rootSerial1, app.DeprecatedEcdsaFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, rootKey1); err != nil {
+	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, hsmSigner1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -555,11 +548,7 @@ func TestRotateRootKey(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected root role")
 	}
-	rootKey2, err := GetTestHsmSigner(ctx, td, *rootSerial2, app.DeprecatedEcdsaFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	expectedKeyIds := append(rootKey1.Key.IDs(), rootKey2.Key.IDs()...)
+	expectedKeyIds := append(hsmTufKey1.IDs(), hsmTufKey2.IDs()...)
 	actualKeyIds := rootRole.KeyIDs
 	sort.Strings(expectedKeyIds)
 	sort.Strings(actualKeyIds)
@@ -571,7 +560,11 @@ func TestRotateRootKey(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(td, "keys", fmt.Sprint(*rootSerial2))); err != nil {
 		t.Fatal(err)
 	}
-	rootSerial3, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	hsmSigner3, _, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hsmTufKey3, err := keys.ConstructTufKey(ctx, hsmSigner3, app.DeprecatedEcdsaFormat)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,11 +583,8 @@ func TestRotateRootKey(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected root role")
 	}
-	rootKey3, err := GetTestHsmSigner(ctx, td, *rootSerial3, app.DeprecatedEcdsaFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	expectedKeyIds = append(rootKey1.Key.IDs(), rootKey3.Key.IDs()...)
+
+	expectedKeyIds = append(hsmTufKey1.IDs(), hsmTufKey3.IDs()...)
 	actualKeyIds = rootRole.KeyIDs
 	sort.Strings(expectedKeyIds)
 	sort.Strings(actualKeyIds)
@@ -608,11 +598,7 @@ func TestRotateRootKey(t *testing.T) {
 	}
 
 	// Sign root & targets
-	rootKey, err := GetTestHsmSigner(ctx, td, *rootSerial1, app.DeprecatedEcdsaFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, rootKey); err != nil {
+	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, hsmSigner1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -645,7 +631,7 @@ func TestRotateTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rootSerial, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	hsmSigner, _, err := CreateTestHsmSigner(td, rootCA, rootSigner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -659,11 +645,7 @@ func TestRotateTarget(t *testing.T) {
 	}
 
 	// Sign root & targets
-	rootKey, err := GetTestHsmSigner(ctx, td, *rootSerial, app.DeprecatedEcdsaFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, rootKey); err != nil {
+	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, hsmSigner); err != nil {
 		t.Fatal(err)
 	}
 
@@ -710,7 +692,7 @@ func TestRotateTarget(t *testing.T) {
 	}
 
 	// Sign root & targets
-	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, rootKey); err != nil {
+	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, hsmSigner); err != nil {
 		t.Fatal(err)
 	}
 
@@ -760,7 +742,7 @@ func TestConsistentSnapshotFlip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rootSerial, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	hsmSigner, _, err := CreateTestHsmSigner(td, rootCA, rootSigner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -775,11 +757,7 @@ func TestConsistentSnapshotFlip(t *testing.T) {
 	}
 
 	// Sign root & targets
-	rootKey, err := GetTestHsmSigner(ctx, td, *rootSerial, app.DeprecatedEcdsaFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, rootKey); err != nil {
+	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, hsmSigner); err != nil {
 		t.Fatal(err)
 	}
 
@@ -818,7 +796,7 @@ func TestConsistentSnapshotFlip(t *testing.T) {
 	}
 
 	// Sign root & targets
-	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, rootKey); err != nil {
+	if err := app.SignCmd(ctx, td, []string{"root", "targets"}, hsmSigner); err != nil {
 		t.Fatal(err)
 	}
 
@@ -882,7 +860,11 @@ func TestSignWithEcdsaHexHSM(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rootSerial, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	hsmSigner, _, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hsmTufKey, err := keys.ConstructTufKey(ctx, hsmSigner, app.DeprecatedEcdsaFormat)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -896,11 +878,7 @@ func TestSignWithEcdsaHexHSM(t *testing.T) {
 	}
 
 	// Sign root
-	rootKey, err := GetTestHsmSigner(ctx, td, *rootSerial, app.DeprecatedEcdsaFormat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.SignCmd(ctx, td, []string{"root"}, rootKey); err != nil {
+	if err := app.SignCmd(ctx, td, []string{"root"}, hsmSigner); err != nil {
 		t.Fatal(err)
 	}
 
@@ -922,7 +900,7 @@ func TestSignWithEcdsaHexHSM(t *testing.T) {
 	if len(signed.Signatures) != 1 {
 		t.Fatalf("missing signatures on root")
 	}
-	if !rootKey.Key.ContainsID(signed.Signatures[0].KeyID) {
+	if !hsmTufKey.ContainsID(signed.Signatures[0].KeyID) {
 		t.Fatalf("missing key id for signer on root")
 	}
 	if len(signed.Signatures[0].Signature) == 0 {
@@ -940,7 +918,7 @@ func TestSignWithEcdsaHexHSM(t *testing.T) {
 
 	// Use the deprecated ECDSA verifier from TUF that uses hex-encoded keys.
 	deprecatedVerifier := tufkeys.NewDeprecatedEcdsaVerifier()
-	if err := deprecatedVerifier.UnmarshalPublicKey(rootKey.Key); err != nil {
+	if err := deprecatedVerifier.UnmarshalPublicKey(hsmTufKey); err != nil {
 		t.Fatalf("error unmarshalling deprecated hex key")
 	}
 	if err := deprecatedVerifier.Verify(msg, signed.Signatures[0].Signature); err != nil {
@@ -964,7 +942,7 @@ func TestEcdsaHexToPEMMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rootSerial, err := CreateTestHsmSigner(td, rootCA, rootSigner)
+	hsmSigner, _, err := CreateTestHsmSigner(td, rootCA, rootSigner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -979,7 +957,7 @@ func TestEcdsaHexToPEMMigration(t *testing.T) {
 	}
 
 	// Just to make sure, try this with the un-deprecated signer and expect failure
-	rootKeyPEM, err := GetTestHsmSigner(ctx, td, *rootSerial, false)
+	hsmTufKeyPEM, err := keys.ConstructTufKey(ctx, hsmSigner, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
+	csignature "github.com/sigstore/cosign/pkg/signature"
 	pkeys "github.com/sigstore/root-signing/pkg/keys"
 	prepo "github.com/sigstore/root-signing/pkg/repo"
 	"github.com/theupdateframework/go-tuf"
@@ -153,7 +154,7 @@ func InitCmd(ctx context.Context, directory, previous string,
 	if err != nil {
 		return err
 	}
-	keys, err := getKeysFromDir(directory+"/keys", deprecatdKeyFormat)
+	keys, err := getKeysFromDir(ctx, directory+"/keys", deprecatdKeyFormat)
 	if err != nil {
 		return fmt.Errorf("getting HSM keys: %s", err)
 	}
@@ -194,13 +195,18 @@ func InitCmd(ctx context.Context, directory, previous string,
 
 	// Add keys used for snapshot and timestamp roles.
 	for role, keyRef := range map[string]string{"snapshot": snapshotRef, "timestamp": timestampRef} {
-		signerKey, err := pkeys.GetSigningKey(ctx, keyRef, deprecatdKeyFormat)
+		signerKey, err := csignature.SignerVerifierFromKeyRef(ctx, keyRef, nil)
+		if err != nil {
+			return err
+		}
+
+		tufKey, err := pkeys.ConstructTufKey(ctx, signerKey, DeprecatedEcdsaFormat)
 		if err != nil {
 			return err
 		}
 
 		// Add key.
-		if err := repo.AddVerificationKeyWithExpiration(role, signerKey.Key, getExpiration(role)); err != nil {
+		if err := repo.AddVerificationKeyWithExpiration(role, tufKey, getExpiration(role)); err != nil {
 			return err
 		}
 
@@ -338,7 +344,7 @@ func jsonMarshal(v interface{}) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func getKeysFromDir(dir string, deprecatdKeyFormat bool) ([]*data.PublicKey, error) {
+func getKeysFromDir(ctx context.Context, dir string, deprecatdKeyFormat bool) ([]*data.PublicKey, error) {
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -350,7 +356,7 @@ func getKeysFromDir(dir string, deprecatdKeyFormat bool) ([]*data.PublicKey, err
 			if err != nil {
 				return nil, err
 			}
-			tufKey, err := pkeys.ToTufKey(*key, deprecatdKeyFormat)
+			tufKey, err := pkeys.ConstructTufKey(ctx, key.Verifier, deprecatdKeyFormat)
 			if err != nil {
 				return nil, err
 			}
